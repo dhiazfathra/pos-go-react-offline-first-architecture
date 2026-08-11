@@ -6,6 +6,7 @@
 | [`decisions/`](decisions/) | ADRs — decisions expensive to reverse |
 | [`runbooks/`](runbooks/) | Operational procedures |
 | [`templates/`](templates/) | ADR, README, and runbook templates |
+| [`superpowers/specs/`](superpowers/specs/) | Design specs that record how a decision was reached |
 
 ## Start here
 
