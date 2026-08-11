@@ -21,6 +21,20 @@ Operational writes are immutable domain events appended on the device and valida
 server-side. Master data is ordinary CRUD, online-only. Stock on hand is a projection of
 the movement log, never a written field.
 
+## Device requirement
+
+Tills run a Chromium-based browser (Chrome or Edge) on Android, Windows, or ChromeOS.
+iOS/iPadOS is **not** a supported till platform as designed: Safari has no Web
+Serial/USB/Bluetooth, so receipt printers and card terminals cannot be driven from the PWA.
+This is a procurement constraint stated up front, not something to discover during
+rollout — see [ADR-0010](docs/decisions/0010-pwa-not-native.md).
+
+Two things are still open and must be answered before building: whether iOS tills are a
+hard requirement (if so, ADR-0010 fails and a native shell becomes mandatory —
+[docs/README.md](docs/README.md#blocking-questions)), and the exact minimum browser
+version, which fixes `esnext` targeting and `storage.persist()` behaviour
+([03-client Open Questions](docs/architecture/03-client.md#open-questions)).
+
 ## Stack
 
 | Layer | Choice |

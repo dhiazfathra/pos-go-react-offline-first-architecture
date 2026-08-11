@@ -74,7 +74,9 @@ See [ADR-0003](../decisions/0003-offline-scope.md) and
 │  transport: gRPC + REST (generated from the same .proto)            │
 │  ┌────────┬──────────┬───────────┬────────┬──────────┬───────────┐  │
 │  │identity│ catalog  │ pricing   │ sales  │inventory │ reporting │  │
-│  └────────┴──────────┴───────────┴────────┴──────────┴───────────┘  │
+│  ├────────┴──────────┼───────────┴────────┴──────────┴───────────┤  │
+│  │ shifts · customers│ (nine modules total — see §2.2)           │  │
+│  └───────────────────┴───────────────────────────────────────────┘  │
 │  ┌───────────────────────── sync module ───────────────────────────┐│
 │  │ ingest(events) · idempotency · delta(cursor) · replication policy││
 │  └─────────────────────────────────────────────────────────────────┘│
@@ -133,6 +135,8 @@ and [§4 Local-first sync strategy](04-sync.md).
 │       ├── pricing/v1/
 │       ├── inventory/v1/
 │       ├── sales/v1/
+│       ├── shifts/v1/           #    ShiftOpened, CashMoved
+│       ├── customers/v1/        #    CustomerChanged
 │       ├── reporting/v1/
 │       └── sync/v1/            #    event envelope, push/pull, cursors
 │

@@ -27,7 +27,7 @@ See [ADR-0004](../decisions/0004-replication-tiers.md).
 
 | Tier | Contents | Scope | Storage | Sync |
 |---|---|---|---|---|
-| **1 — Hydrated** | Catalog, prices, promos, tax rules, payment methods, customers, staff, permissions, store config | `store_id` + tenant-global | IndexedDB → **in memory** | Full replica, delta pull |
+| **1 — Hydrated** | Catalog, prices, promos, tax rules, payment methods, customers, staff, permissions, store config, feature flags | `store_id` + tenant-global | IndexedDB → **in memory** | Full replica, delta pull |
 | **2 — Resident** | Sales, payments, stock movements, shifts | `store_id`, rolling window (default 35 d) | IndexedDB, **queried by index** | Windowed pull, evictable |
 | **3 — Outbox** | Unsynced local writes | This device | IndexedDB, **never evicted** | Push-only, drained on ack |
 | **4 — Server-only** | Aggregates, audit log, cross-store analytics, history beyond the window | — | none | Online query |

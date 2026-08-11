@@ -5,10 +5,8 @@
 `api/` at the repo root — a sibling of `apps/`, not a child of either.
 
 ```
+buf.yaml  buf.gen.yaml  buf.lock    # at the repo root, alongside api/
 api/
-├── buf.yaml
-├── buf.gen.yaml
-├── buf.lock
 ├── pos/
 │   ├── common/v1/       money.proto, ids.proto, page.proto, error.proto
 │   ├── identity/v1/
@@ -16,11 +14,17 @@ api/
 │   ├── pricing/v1/
 │   ├── inventory/v1/
 │   ├── sales/v1/
+│   ├── shifts/v1/       shift.proto (ShiftOpened, CashMoved)
+│   ├── customers/v1/    customer.proto (CustomerChanged)
 │   ├── reporting/v1/
 │   └── sync/v1/         envelope.proto, push.proto, pull.proto, policy.proto
 └── testdata/
     └── pricing/         golden corpus shared by Go and TS suites (§4.8)
 ```
+
+The buf config files live at the repo root, not inside `api/`, so the `out:` paths in
+§5.3 (`gen/go`, `gen/ts`, `docs/api`) resolve against the root — see the layout in
+[§1.5](01-overview.md#15-monorepo-layout).
 
 Neither language owns the contract. Putting protos under `apps/server` would make the
 server the de-facto owner and invite server-shaped API design — request/response types

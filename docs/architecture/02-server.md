@@ -160,7 +160,26 @@ CREATE TABLE domain_events (
   UNIQUE (device_id, device_seq)
 );
 CREATE INDEX ON domain_events (tenant_id, store_id, received_at);
+
+CREATE TABLE event_rejections (
+  event_id        uuid NOT NULL,                 -- not a FK: rejected events are never stored
+  tenant_id       uuid NOT NULL,
+  store_id        uuid NOT NULL,
+  device_id       uuid NOT NULL,
+  event_type      text NOT NULL,
+  reason          text NOT NULL,                 -- EventResult.reason, as returned to the device
+  payload         bytea,                         -- raw bytes, for forensics on schema violations
+  rejected_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (event_id, rejected_at)
+);
+CREATE INDEX ON event_rejections (tenant_id, rejected_at);
 ```
+
+`STATUS_REJECTED` results are recorded in `event_rejections` rather than dropped: the
+device quarantines its copy, and the server keeps the matching side so rejection reasons
+can be aggregated across devices
+([troubleshooting-sync §3](../runbooks/troubleshooting-sync.md)). `STATUS_DEFERRED` is not
+recorded — it is expected and retried.
 
 Three deliberate details:
 
@@ -216,10 +235,11 @@ service SyncService {
 message EventResult {
   string event_id = 1;
   enum Status {
-    ACCEPTED   = 0;  // persisted
-    DUPLICATE  = 1;  // already had it — treat exactly as ACCEPTED, drain it
-    REJECTED   = 2;  // permanently invalid; will never succeed; needs human attention
-    DEFERRED   = 3;  // transient (dependency not yet synced); retry later
+    STATUS_UNSPECIFIED = 0;  // never sent; unknown value to older clients
+    STATUS_ACCEPTED    = 1;  // persisted
+    STATUS_DUPLICATE   = 2;  // already had it — treat exactly as ACCEPTED, drain it
+    STATUS_REJECTED    = 3;  // permanently invalid; will never succeed; needs human attention
+    STATUS_DEFERRED    = 4;  // transient (dependency not yet synced); retry later
   }
   Status status = 2;
   string reason = 3;
