@@ -1,9 +1,11 @@
 # ADR-0007: Device-prefixed local receipt sequences, server-assigned fiscal sequence
 
 ## Status
+
 Proposed
 
 ## Date
+
 2026-08-11
 
 ## Context
@@ -26,7 +28,7 @@ Two numbers, with different purposes.
 
 **1. Device-prefixed local sequence — printed immediately.**
 
-```
+```text
 ST01-TAB03-000142
  │     │      └── monotonic, gapless per device, allocated offline
  │     └───────── device code
@@ -47,11 +49,13 @@ Both are stored on the sale projection. Lookup works by either.
 ## Alternatives Considered
 
 ### Server-allocated number only
+
 - Pros: single gapless sequence; simplest model.
 - Cons: cannot print a receipt offline. Fatal.
 - Rejected.
 
 ### Pre-allocated block of numbers per device
+
 - Pros: gapless-looking global sequence; numbers available offline.
 - Cons: unused numbers in a block become permanent gaps, which is exactly what the tax
   requirement forbids; blocks can exhaust mid-outage; requires online pre-allocation before
@@ -59,12 +63,14 @@ Both are stored on the sale projection. Lookup works by either.
 - Rejected: fails the gapless requirement it exists to satisfy.
 
 ### UUID or timestamp-based receipt identifier
+
 - Pros: trivially unique, no coordination.
 - Cons: unreadable over the phone, unsearchable by humans, and not gapless — fails audit
   requirements in most jurisdictions.
 - Rejected as the customer-facing number; the event UUID already covers internal identity.
 
 ### Device prefix only, no fiscal sequence
+
 - Pros: one number, simpler.
 - Cons: does not satisfy jurisdictions requiring a gapless per-store sequence.
 - Rejected as a universal answer, but note that where no fiscal requirement exists, part 2
@@ -86,9 +92,11 @@ Both are stored on the sale projection. Lookup works by either.
 - Exports and accounting integrations must state which number they use.
 
 ## Related
+
 - [ADR-0005](0005-event-sourced-writes.md), [ADR-0006](0006-oversell-accepted.md)
 - [Architecture §4.6](../architecture/04-sync.md#46-receipt-numbering)
 
 ## Open question carried
+
 Whether the target jurisdictions accept a fiscal sequence assigned in receipt order rather
 than occurrence order. Must be answered before `sales` is built.

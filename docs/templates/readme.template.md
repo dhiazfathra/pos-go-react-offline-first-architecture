@@ -25,7 +25,7 @@ The second list prevents scope creep more effectively than the first.
 
 ## Structure
 
-```
+```text
 src/
 ├── …
 ```
@@ -34,7 +34,11 @@ One line per directory, explaining why it exists — not what it obviously conta
 
 ## Key decisions
 
-- [ADR-NNNN](../../docs/decisions/NNNN-….md) — why <thing> is the way it is.
+- [ADR-NNNN](<path-to-repo-root>/docs/decisions/NNNN-….md) — why <thing> is the way it is.
+
+Replace `<path-to-repo-root>` with the relative path from this README to the repository
+root — `../..` for `apps/<name>/README.md`, `../../..` one level deeper. Do not copy the
+traversal from another README without checking its depth.
 
 ## Gotchas
 

@@ -3,6 +3,18 @@
 > **Audience:** on-call engineer, possibly at 3am, possibly not the author.
 > Write for someone competent but without context. No cleverness, no implicit steps.
 
+## Status
+
+`Draft` | `Ready` | `Verified` — see
+[`../runbooks/README.md`](../runbooks/README.md#status) for what each means.
+
+## Dependencies and blockers
+
+What must exist or be decided before this runbook is trustworthy. One line each, with the
+open question or ADR it depends on. `None` if the runbook is fully executable today.
+Anything listed here is a production-launch blocker, not documentation debt — mark the
+affected steps ⚠️ in place as well.
+
 ## When to use this
 
 The symptom or trigger. Be specific enough that someone can tell whether they are in the
@@ -23,8 +35,10 @@ say so explicitly, because it changes the urgency.
 ## Steps
 
 1. **Verify the symptom.** The exact command, and the exact output that confirms it.
+
    ```bash
    ```
+
 2. **Assess blast radius.** How many tenants, stores, devices.
 3. **Mitigate.** Stop the bleeding before diagnosing.
 4. **Diagnose.**

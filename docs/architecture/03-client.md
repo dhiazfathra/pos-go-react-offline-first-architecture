@@ -100,8 +100,17 @@ Three layers, each with a single responsibility:
 **TanStack Query is used as a reactive cache over local storage, not as a data-fetching
 library.** Its `queryFn` reads IndexedDB; it never touches the network. We keep it for
 what it is genuinely good at — dependency-tracked invalidation, `useSuspenseQuery`,
-devtools — while `staleTime: Infinity` and `gcTime: Infinity` disable everything that
-assumes a server.
+devtools — while `staleTime: Infinity` disables everything that assumes a server.
+
+`gcTime` stays **finite**, and this is the one place the off-label use bites. `gcTime`
+governs how long an *inactive* query's cached result is retained; setting it to `Infinity`
+means every product-search term a cashier ever typed is held in the query cache for the
+life of the tab. On a shared till that is open all day, that is an unbounded leak on the
+device with the least memory. A finite `gcTime` costs nothing here because the data is not
+being re-fetched from a network on eviction — it is re-read from IndexedDB in single-digit
+milliseconds. Rule of thumb: minutes for keyed, high-cardinality queries like search;
+longer only for the handful of singleton queries (store config, permissions) whose cache
+size is bounded by construction.
 
 This is worth a moment of honesty: it is an unconventional use, and a new team member will
 assume `queryFn` fetches. Mitigation is a documented custom `useLocalQuery` wrapper that
@@ -113,8 +122,8 @@ export const productSearch = (storeId: string, term: string) =>
   queryOptions({
     queryKey: ['catalog', 'search', storeId, term],
     queryFn: () => localDb.searchProducts(storeId, term),   // IndexedDB. No network.
-    staleTime: Infinity,
-    gcTime: Infinity,
+    staleTime: Infinity,      // local store is the source of truth; never "stale"
+    gcTime: 5 * 60 * 1000,    // finite: one cache entry per search term typed all day
   });
 ```
 
@@ -144,6 +153,8 @@ interface OutboxEntry {
   createdAt: number;      // device clock, recorded not trusted
   attempts: number;
   status: 'pending' | 'inflight' | 'drained' | 'quarantined';
+  leaseUntil?: number;    // inflight only — after this, the entry reverts to pending
+  drainedAt?: number;     // drained only — start of the retention window
   lastError?: string;
 }
 ```
@@ -155,12 +166,27 @@ Rules, each of which exists because violating it loses money:
    no record.
 2. **`deviceSeq` is gapless and monotonic across restarts.** A gap is how the server
    detects loss. Allocated inside the same IndexedDB transaction as the append.
-3. **Entries are never deleted until the server acks by `eventId`.** Not on "probably
-   sent", not on optimistic assumption.
-4. **`quarantined` entries surface as a manager task.** Never silently dropped.
-5. **The unsynced count is always visible in the UI.** Staff need to know that closing the
+3. **`inflight` is a lease, not a state a crash can strand.** `inflight` is durable, so a
+   tab killed between dispatch and response leaves entries marked as sent that were never
+   acked. Every transition to `inflight` therefore stamps `leaseUntil = now + lease`
+   (order of the `PushEvents` timeout plus a margin, so ~60 s); the drain loop and every
+   sync-engine boot reclaim any `inflight` entry whose lease has expired back to
+   `pending`. Reclaiming early is harmless — push is idempotent by `eventId`, so the worst
+   case is a `DUPLICATE` result — whereas not reclaiming at all is a sale that never
+   syncs. Entries still inside their lease are left alone, so a slow batch is not
+   double-sent by an impatient reclaim.
+4. **Entries are never deleted until the server acks by `eventId`.** Not on "probably
+   sent", not on optimistic assumption. An acked entry moves to `drained` with a
+   `drainedAt` stamp, and is **retained, not deleted**, for a retention window that must
+   be at least the worst-case server restore-plus-detection window
+   ([disaster-recovery](../runbooks/disaster-recovery.md)) — because a restore from a
+   backup can lose events the device has already been told were durable, and the device's
+   copy is then the only copy. Only after that window does a `drained` entry become
+   eligible for deletion, ahead of any Tier-2 history in the eviction order.
+5. **`quarantined` entries surface as a manager task.** Never silently dropped.
+6. **The unsynced count is always visible in the UI.** Staff need to know that closing the
    store with 340 unsynced transactions is a thing to mention to someone.
-6. **Payload is serialised at enqueue time**, using the same Protobuf types the server
+7. **Payload is serialised at enqueue time**, using the same Protobuf types the server
    validates. A payload built at drain time can be built from a mutated local store and
    no longer represent what the cashier actually did.
 
@@ -179,13 +205,32 @@ see [ADR-0010](../decisions/0010-pwa-not-native.md).
 export async function completeSale(draft: SaleDraft) {
   const event = buildSaleCompleted(draft);      // pure; priced from local Tier 1 rules
 
-  await outbox.append(event);                   // durable. awaited. non-negotiable.
-  await localDb.applyProjection(event);         // local read model updated
-  queryClient.invalidateQueries({ queryKey: ['sales'] });
+  // ONE IndexedDB transaction: outbox append, deviceSeq allocation, and local
+  // projection commit together or not at all.
+  await localDb.tx('rw', [outboxStore, salesStore, seqStore], async () => {
+    await outbox.append(event);                 // durable. awaited. non-negotiable.
+    await localDb.applyProjection(event);       // local read model updated
+  });
+
+  queryClient.invalidateQueries({ queryKey: ['sales'] });  // only after commit
 
   syncEngine.kick();                            // fire-and-forget; may be offline
 }
 ```
+
+**The single transaction is the point.** Two awaited writes leave a window in which a
+crash produces a durable outbox event with no matching local row: the sale syncs to the
+server and is invisible on the device that took the money, which is exactly the kind of
+discrepancy that destroys trust in the till. IndexedDB commits a transaction atomically or
+aborts it entirely, so scoping both writes to one transaction closes the window at the
+platform level rather than with a compensating cleanup path. Cache invalidation happens
+*after* the commit, never inside it — an aborted transaction must not leave the UI showing
+a sale that was rolled back.
+
+Where a single transaction is genuinely not available — a projection that must touch a
+store outside the transaction's scope — the fallback is a startup replay that scans for
+outbox entries with no corresponding projection and applies them before the first query
+runs. The transaction is preferred; the replay is the escape hatch, not the default.
 
 No spinner, no rollback path, no error boundary around the network — because there is no
 network in this function. The only failure mode is storage failure, which is fatal and
@@ -269,7 +314,10 @@ A till is a keyboard-first, and often keyboard-*only*, environment. Design accor
 The offline e2e suite is what actually validates the architecture:
 
 - Take five sales offline, close and reopen the tab, verify all five survive and drain
-- Kill the browser mid-sale, verify no partial sale and no lost sale
+- Kill the browser mid-sale, verify no partial sale and no lost sale — specifically, that
+  no outbox entry exists without its local projection, and none the other way round
+- Kill the browser mid-push, verify `inflight` entries revert to `pending` once their lease
+  expires, drain successfully on restart, and are not re-sent while still leased
 - Two devices (two browser contexts) sell the last unit, verify both events land and
   oversell is reported
 - Come back online after a simulated 48 h with a large backlog; verify ordering, progress
@@ -303,6 +351,20 @@ a time.
 **PWA storage eviction** is an accepted, monitored risk, not a solved problem. It is the
 most likely reason this architecture changes.
 
+**Retaining drained outbox entries trades storage against recoverability**, and it trades
+it against the risk directly above. Keeping acked events on-device for the restore window
+means the device holds a second copy of data the server already has — pure overhead on
+99.9% of days, and pressure on the quota that eviction feeds on. It is kept because the
+0.1% case is a server restore that rolls back events the device was told were durable,
+and in that window the device's copy is the only copy. The window is therefore sized from
+the disaster-recovery numbers and no larger, drained entries are first in the eviction
+order, and their volume is a monitored figure rather than an assumption.
+
+**Reclaiming `inflight` leases can re-send an event that was actually delivered.** That is
+intentional: idempotency makes the cost a `DUPLICATE` result, whereas the alternative
+failure — an event stranded as `inflight` forever — is a lost sale. Lazy over clever;
+the lease length is the only tuning knob and it is set from the push timeout.
+
 **Two implementations of pricing and tax** (Go and TypeScript) is the largest ongoing tax.
 Shared Protobuf inputs and a shared golden-file test corpus contain it; they do not
 eliminate it. See [§4.8](04-sync.md#48-the-duplicated-domain-logic-problem).
@@ -324,7 +386,11 @@ sync. Shared corpus, shared golden files, run in both CI jobs.
    does each user get isolated local state, or is the device the identity with users as
    attribution on events? Second option is far simpler; needs confirming against how
    stores actually operate.
-5. **Client update strategy.** Forcing a reload mid-shift is unacceptable; running a
+5. **Drained-entry retention window.** A concrete number, not a guess: it must cover the
+   worst case of restore time plus the time to *detect* that a restore lost events. Owned
+   by [disaster-recovery](../runbooks/disaster-recovery.md); blocks the client's storage
+   budget, since it sets how much acked data the device carries.
+6. **Client update strategy.** Forcing a reload mid-shift is unacceptable; running a
    month-old client is a support problem. Likely answer is version-gated at shift
    boundaries, but the interaction with an outbox holding events serialised by the *old*
    schema needs design.

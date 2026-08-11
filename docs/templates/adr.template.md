@@ -1,9 +1,11 @@
 # ADR-NNNN: <short imperative title>
 
 ## Status
+
 Proposed | Accepted | Superseded by ADR-NNNN | Deprecated
 
 ## Date
+
 YYYY-MM-DD
 
 ## Context
@@ -23,6 +25,7 @@ What we are doing. Present tense, active voice, specific enough to act on.
 For each real alternative — not straw men:
 
 ### <Alternative>
+
 - Pros: …
 - Cons: …
 - Rejected: the single reason it lost.
@@ -41,4 +44,5 @@ Concrete triggers that would make this decision wrong. Thresholds, scale points,
 — not "if requirements change".
 
 ## Related
+
 - Links to other ADRs and architecture sections.

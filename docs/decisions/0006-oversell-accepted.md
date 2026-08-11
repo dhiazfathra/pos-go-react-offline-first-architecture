@@ -1,9 +1,11 @@
 # ADR-0006: Offline oversell is accepted and reported, not prevented
 
 ## Status
+
 Proposed — **requires explicit business sign-off**
 
 ## Date
+
 2026-08-11
 
 ## Context
@@ -44,9 +46,36 @@ Accept oversell. Report it. Do not attempt to prevent it.
   items to require connectivity to sell. This is a narrow, opt-in exception, not the
   default.
 
+### The online-required exception, specified
+
+The exception is only worth having if it actually blocks. It is enforced in three places:
+
+- **Declared** in the replication policy ([ADR-0004](0004-replication-tiers.md),
+  `pos/sync/v1/policy.proto`) as an `online_required` flag carried on the category, matched
+  by the item's category and inherited down the category tree. It is Tier 1 data, so the
+  client always has it, and it is server-declared so a category can be flagged without a
+  client release.
+- **Enforced at the till, before the write exists.** A flagged item cannot be added to a
+  sale while the device is offline, and if connectivity drops mid-sale, tendering is
+  blocked with a designed explanation and the option to void the line. Nothing for a
+  flagged item is ever appended to the outbox offline — the outbox is push-only and
+  effectively unrejectable in practice, so a prohibited sale that reaches it is already
+  lost.
+- **Backstopped at the server.** Ingest validates the flag as of the event's recorded
+  timestamp. A violation is not silently accepted and not silently dropped: the event is
+  marked `REJECTED` for that reason, quarantined for manual review, and raised to a manager
+  — the sale physically happened and someone has to resolve it. This is the one class of
+  business-rule rejection the sync contract carries; ordinary stock-negative events are
+  still accepted unconditionally.
+
+The residual gap is honest: a device whose policy is stale sells an item that was flagged
+after its last sync. That window is bounded by the maximum-offline limit in ADR-0004, and
+the quarantine path exists precisely because it cannot be closed entirely.
+
 ## Alternatives Considered
 
 ### Refuse to sell when offline stock reaches zero
+
 - Pros: no oversell.
 - Cons: local stock is *already* stale after minutes offline, so this refuses legitimate
   sales of items that are physically present while still failing to prevent oversell
@@ -54,6 +83,7 @@ Accept oversell. Report it. Do not attempt to prevent it.
 - Rejected: costs revenue and does not achieve its goal.
 
 ### Reserve stock per device up front
+
 - Pros: bounded oversell; each device knows what it may sell.
 - Cons: requires online reservation before going offline (an outage is not scheduled);
   strands stock on the device that reserved it; reservation expiry during a long outage
@@ -62,12 +92,14 @@ Accept oversell. Report it. Do not attempt to prevent it.
   high-value serialised goods.
 
 ### Counter CRDT for stock
+
 - Pros: mathematically clean convergence.
 - Cons: converges to the same negative number. Does not prevent anything. Adds a second
   data model and loses movement history.
 - Rejected: solves a problem that is not the problem.
 
 ### Server-side stock lock with offline queue
+
 - Pros: strict correctness when online.
 - Cons: no mechanism at all when offline, which is the case under discussion.
 - Rejected: does not address the scenario.
@@ -90,5 +122,6 @@ Accept oversell. Report it. Do not attempt to prevent it.
   narrowly.
 
 ## Related
+
 - [ADR-0005](0005-event-sourced-writes.md), [ADR-0003](0003-offline-scope.md)
 - [Architecture §4.4](../architecture/04-sync.md#44-conflict-resolution)

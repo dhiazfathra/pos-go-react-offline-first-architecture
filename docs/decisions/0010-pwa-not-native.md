@@ -1,9 +1,11 @@
 # ADR-0010: Installed PWA, no separate native codebase
 
 ## Status
+
 Proposed — **conditional on hardware access questions being answered**
 
 ## Date
+
 2026-08-11
 
 ## Context
@@ -34,10 +36,31 @@ Ship an installed PWA as the only client, with explicit conditions and a defined
 
 - Installed via the browser's install prompt; service worker precaches all route chunks so
   a cold start works with no network.
-- `navigator.storage.persist()` requested at install. Installed PWAs are granted persistent
-  storage on the target platforms, which removes eviction as a routine risk.
+- `navigator.storage.persist()` requested at install. Installed PWAs are normally granted
+  persistence on the target platforms, which removes automatic eviction under quota
+  pressure as a routine risk.
 - Storage quota is monitored and surfaced before it becomes critical; Tier 2 history is
   evicted first, the outbox never.
+- **Persistence is requested, not guaranteed, and it protects against less than it sounds
+  like.** `persist()` can return `false`, in which case the origin's storage remains subject
+  to automatic eviction. Even when granted, it does not survive the user clearing site data,
+  the browser being reset, or the device being wiped or reimaged. The outbox is the only
+  copy of an unsynced sale, so the claim "the outbox is never evicted" is a policy about our
+  own eviction order, not a durability guarantee from the platform. Three mitigations follow
+  and are part of this decision, not follow-ups:
+  1. The result of `persist()` is checked, not fired and forgotten. If persistence is denied,
+     the device shows a persistent warning and is flagged in the fleet view; whether that
+     also gates trading is a business call for the same sign-off as
+     [ADR-0006](0006-oversell-accepted.md).
+  2. The outbox drains eagerly — on every connectivity regain and on a short timer — so the
+     window in which the browser holds the only copy is minutes, not a shift.
+  3. An operator-accessible export of the pending outbox exists for the "device is being
+     reimaged" and "device is failing" cases, along with a documented recovery path in the
+     runbooks. Devices are MDM-managed so that site-data clearing is not a thing a cashier
+     can do casually.
+- If a deployment genuinely requires zero lost sales under device loss, the browser outbox
+  alone does not deliver it and the native-shell fallback below becomes mandatory rather
+  than conditional.
 - **Hardware peripherals are accessed via Web Serial / Web USB / Web Bluetooth**, which
   constrains the supported device platform for tills to Chromium-based browsers.
 - Phones and back-office use, which need no peripherals, are unconstrained.
@@ -55,12 +78,14 @@ nobody has requested.
 ## Alternatives Considered
 
 ### React Native / native iOS + Android
+
 - Pros: full hardware access, native storage guarantees, app-store distribution.
 - Cons: a second codebase, second test suite, second release process; app-store review in
   the path of a hotfix — unacceptable when a pricing bug is live in stores.
 - Rejected: the cost is very large and the benefit is limited to peripherals.
 
 ### Electron desktop app
+
 - Pros: full hardware access, guaranteed storage, mature.
 - Cons: desktop only, which does not serve tablet tills; large binary; separate update
   channel.
@@ -68,12 +93,14 @@ nobody has requested.
   shell is later needed.
 
 ### Tauri shell from the start
+
 - Pros: same web codebase, hardware access, real filesystem storage, small binary.
 - Cons: a native build and signing pipeline per platform, and app distribution — real
   ongoing cost for a capability that may not be required.
 - Rejected as the default, held as the defined fallback.
 
 ### PWA plus a small local companion agent
+
 - Pros: PWA everywhere; the agent handles peripherals over localhost.
 - Cons: a second thing to install and update on every till; a localhost service is its own
   security surface.
@@ -102,5 +129,6 @@ nobody has requested.
 These must be answered before this ADR moves from Proposed to Accepted.
 
 ## Related
+
 - [ADR-0004](0004-replication-tiers.md)
 - [Architecture §3](../architecture/03-client.md)

@@ -15,8 +15,8 @@ been raised as open questions. None were needed.
 
 ## Decision path
 
-Three questions were resolved in sequence. The second answer to each is the one that
-shipped — the first pass reasoned from a general local-first playbook, which turned out to
+Three questions were resolved in sequence. The second answer to each is the one that was
+recorded — the first pass reasoned from a general local-first playbook, which turned out to
 be solving a different problem.
 
 ### Q1 — Offline scope

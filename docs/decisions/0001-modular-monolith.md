@@ -1,9 +1,11 @@
 # ADR-0001: Go modular monolith with go-kratos
 
 ## Status
+
 Proposed
 
 ## Date
+
 2026-08-11
 
 ## Context
@@ -39,6 +41,7 @@ Boundaries are enforced by tooling, not convention:
 ## Alternatives Considered
 
 ### Microservices from the start
+
 - Pros: independent scaling and deploy; strong boundaries by construction; conventional.
 - Cons: the sale transaction becomes a saga; N deployables for a small team; distributed
   tracing needed to answer basic questions; network failure modes added to a system whose
@@ -47,12 +50,14 @@ Boundaries are enforced by tooling, not convention:
   do not need at a cost we cannot afford.
 
 ### Single-package monolith ("start simple, extract later")
+
 - Pros: fastest initial velocity, no boundary ceremony.
 - Cons: without enforced boundaries, extraction is never actually possible; the promised
   "later" arrives as a rewrite.
 - Rejected: the boundary cost is small and paid once; the un-boundaried version compounds.
 
 ### Monolith with an internal event bus between modules
+
 - Pros: looser coupling; a ready-made path to extraction.
 - Cons: asynchrony inside one process, harder debugging, eventual consistency where none
   is required.
@@ -61,6 +66,7 @@ Boundaries are enforced by tooling, not convention:
   consumer without adding a broker.
 
 ### Go standard library / chi, no framework
+
 - Pros: fewer dependencies; total control.
 - Cons: we would hand-roll middleware chains, config, DI wiring, and gRPC+REST duality.
 - Rejected: go-kratos supplies exactly this, is Protobuf-first, and matches the stack
@@ -85,5 +91,6 @@ Boundaries are enforced by tooling, not convention:
 - One module requires a different availability or compliance guarantee.
 
 ## Related
+
 - [ADR-0002](0002-protobuf-buf-contracts.md), [ADR-0013](0013-sqlc-not-orm.md)
 - [Architecture §2](../architecture/02-server.md)

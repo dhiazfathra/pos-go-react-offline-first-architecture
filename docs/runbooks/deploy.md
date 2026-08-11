@@ -10,7 +10,8 @@ Promoting a build to staging or production.
 
 ## Severity and impact
 
-Deploys are zero-downtime by design. **Stores keep trading during a deploy and during a
+Deploys are offline-tolerant by design, not zero-downtime — with a single instance there is
+a brief restart gap (step 3). **Stores keep trading during a deploy and during a
 failed deploy** — devices queue writes locally ([ADR-0003](../decisions/0003-offline-scope.md)).
 A failed deploy delays sync; it does not stop sales. Treat accordingly: do not rush a
 rollback decision out of misplaced urgency.
@@ -46,6 +47,16 @@ journalctl --user -u pos-migrate@<sha> -f
 Migrations must be backward-compatible with the **currently running** version — the two
 overlap. Anything destructive is expand → migrate → contract across three releases.
 
+The currently running version is not the only reader. Devices that have been offline
+reconnect with events serialised under an older schema, so migrations and event-schema
+changes must also be compatible with the **supported client-version floor**:
+
+- Check the floor before shipping a migration or event-schema change ⚠️ *the floor itself is
+  an open policy question — see [05-contracts](../architecture/05-contracts.md).*
+- Keep decoders for every payload version that can still be sitting in a device outbox.
+- Run the released-schema fixture test (serialised events from each released schema version)
+  as part of the deploy gate.
+
 If a migration takes a lock on a large table, it can stall ingest. Verify against a
 restored production-shaped dump in CI, not here.
 
@@ -69,11 +80,17 @@ which is acceptable.
 | `/readyz` | 200 |
 | Version endpoint | new SHA |
 | `PushEvents` success rate | returns to baseline within 2 min |
+| `PullChanges` success rate | returns to baseline within 2 min |
+| Pull smoke test | a test device receives current catalog, prices, permissions and stock |
+| Pull cursor | advances, and does not skip or rewind |
+| Duplicate push | re-pushing an already-accepted event is idempotent, not double-counted |
 | Error rate (Sentry) | no new issue classes |
 | Migration version | matches expected |
 
-**The check that matters most:** `PushEvents` succeeding. If sales are being ingested, the
-deploy is functionally good regardless of what else is noisy.
+**The check that matters most:** ingest *and* distribution. `PushEvents` succeeding means
+sales are being captured; it says nothing about `PullChanges`. A broken pull path leaves
+catalogs, prices, permissions and stock projections silently stale on every till while
+selling continues, so both paths must be verified before the deploy is called good.
 
 ### 5. Watch
 
@@ -83,8 +100,11 @@ you the one store that has stopped syncing.
 
 ## Rollback
 
-See [`rollback.md`](rollback.md). Short version: redeploy the previous image SHA. Do **not**
-attempt to reverse migrations — they are forward-only.
+See [`rollback.md`](rollback.md). Short version: redeploy the most recent image that still
+works against the *migrated* schema — usually the previous SHA, but only after confirming
+the migrated schema is backward-compatible with that image. If this deploy's migration is
+not backward-compatible, the previous image is not a valid rollback target; forward-fix
+instead. Do **not** attempt to reverse migrations — they are forward-only.
 
 ## Escalation
 

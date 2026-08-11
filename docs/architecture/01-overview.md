@@ -136,7 +136,7 @@ and [§4 Local-first sync strategy](04-sync.md).
 │       ├── inventory/v1/
 │       ├── sales/v1/
 │       ├── shifts/v1/           #    ShiftOpened, CashMoved
-│       ├── customers/v1/        #    CustomerChanged
+│       ├── customers/v1/        #    CustomerRegistered, CustomerChanged
 │       ├── reporting/v1/
 │       └── sync/v1/            #    event envelope, push/pull, cursors
 │

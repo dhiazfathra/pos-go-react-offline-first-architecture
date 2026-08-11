@@ -1,9 +1,11 @@
 # ADR-0003: Offline scope — operating surface fully offline, administrative surface online-only
 
 ## Status
+
 Proposed
 
 ## Date
+
 2026-08-11
 
 ## Context
@@ -37,12 +39,29 @@ Draw the line by surface, not by entity:
 - In the client, `app/routes/_admin/` is a hard boundary: its layout route checks
   connectivity and renders a designed offline state rather than a broken form.
 
+**The guarantee covers the application, not the payment rails.** Offline-complete means
+every operating-surface screen accepts input and durably records the write; it does not
+create card authorisation where the terminal has none. Payment modes are therefore
+classified explicitly:
+
+| Payment mode | Offline | Note |
+|---|---|---|
+| Cash, voucher, on-account, loyalty redemption | Yes | Settled entirely in the local ledger |
+| Terminal with offline/store-and-forward authorisation | Yes, within the acquirer's floor limit | Risk and limits are the acquirer's, not ours |
+| Cloud-only / online-authorisation-only terminal | No | Tendering that mode is blocked while offline, with a designed explanation |
+
+Which terminals a deployment actually has is a blocking question for
+[ADR-0010](0010-pwa-not-native.md). Until it is answered, plan for the worst case: offline
+trading is cash-and-equivalents only, and the sale-completion UI must be able to disable an
+unavailable tender without failing the whole sale.
+
 This is a **policy** line, not a technical wall. The sync engine is capable of carrying
 admin writes; the restriction is a deliberate reduction of conflict surface.
 
 ## Alternatives Considered
 
 ### Everything offline, including administration
+
 - Pros: no surprises for the user; one uniform rule; no online/offline split to explain.
 - Cons: every master-data entity needs conflict resolution and a reconciliation UI;
   permission and tax-rule conflicts carry compliance consequences; substantially larger
@@ -50,12 +69,14 @@ admin writes; the restriction is a deliberate reduction of conflict surface.
 - Rejected: cost is concentrated exactly where the benefit is smallest.
 
 ### Only the register works offline
+
 - Pros: smallest possible offline surface.
 - Cons: a shift cannot be closed, a return cannot be processed, and a stock count cannot
   be recorded during an outage — all of which are normal trading-day activities.
 - Rejected: too narrow to deliver business continuity.
 
 ### Offline reads everywhere, offline writes only for sales
+
 - Pros: simple to state.
 - Cons: same gap as above — refunds, cash movements and shift close are operationally
   essential and would break.
@@ -73,7 +94,11 @@ admin writes; the restriction is a deliberate reduction of conflict surface.
 - The `_admin` boundary must be genuinely designed — an explicit, informative offline
   state — or users will experience the policy as a bug.
 - Relaxing this later is additive and does not invalidate anything built.
+- If the chosen card terminals turn out to be online-only, offline trading degrades to
+  cash-and-equivalents. That is a business-continuity number, not a technical detail: it
+  should be estimated from the actual cash/card mix per site before this ADR is accepted.
 
 ## Related
+
 - [ADR-0004](0004-replication-tiers.md), [ADR-0005](0005-event-sourced-writes.md)
 - [Architecture §4.1](../architecture/04-sync.md#41-what-offline-means-here)

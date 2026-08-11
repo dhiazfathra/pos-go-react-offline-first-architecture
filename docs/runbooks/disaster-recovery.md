@@ -43,17 +43,23 @@ restore rehearsal, not hot standby.
 
 ## Backup strategy
 
-| Asset | Method | Frequency | Retention | Tested |
-|---|---|---|---|---|
-| Postgres | PITR, continuous WAL + base backup | Continuous / daily base | ⚠️ TBD, statutory 7–10 y likely | ⚠️ Not yet |
-| MinIO | Versioned bucket + offsite replication | Continuous | ⚠️ TBD | ⚠️ Not yet |
-| OpenBao | Snapshot | Daily | 30 d | ⚠️ Not yet |
-| IaC state | Remote state, versioned + encrypted | Per apply | 90 d | ⚠️ Not yet |
-| Container images | Registry, immutable by SHA | Per build | 1 y | n/a |
+| Asset | Method | Frequency | Off-site copy | Retention | Tested |
+|---|---|---|---|---|---|
+| Postgres | PITR, continuous WAL + base backup | Continuous / daily base | WAL and base backups replicated to a second region, restorable without any resource in the primary region | ⚠️ TBD, statutory 7–10 y likely | ⚠️ Not yet |
+| MinIO | Versioned bucket + offsite replication | Continuous | Cross-region bucket replication, separate credentials | ⚠️ TBD | ⚠️ Not yet |
+| OpenBao | Snapshot | Daily | Snapshot replicated off-region; **unseal/recovery keys held separately from the snapshot**, split across custodians ⚠️ *unseal strategy undecided — ADR-0009* | 30 d | ⚠️ Not yet |
+| IaC state | Remote state, versioned + encrypted | Per apply | State backend and its encryption key in a second region; state must be readable with no primary-region access | 90 d | ⚠️ Not yet |
+| Container images | Registry, immutable by SHA | Per build | Registry replicated or mirrored off-region | 1 y | n/a |
+
+Regional loss is in scope, so every control-plane dependency needs a copy that survives the
+region and credentials that can reach it from outside the region. A backup stored in the
+region it protects, or one whose decryption key is only obtainable from the failed region,
+does not count.
 
 **An untested backup is not a backup.** Restore rehearsal must be scheduled — quarterly at
-minimum — and the rehearsal must include the event-reconciliation step below, which is the
-part most likely to be wrong.
+minimum — and must be performed *from the off-site copy only*, with primary-region access
+assumed unavailable. The rehearsal must include OpenBao key recovery and the
+event-reconciliation step below, which is the part most likely to be wrong.
 
 ## Recovery procedure
 

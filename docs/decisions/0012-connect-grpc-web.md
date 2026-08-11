@@ -1,9 +1,11 @@
 # ADR-0012: Connect for gRPC-Web, grpc-gateway for partner REST
 
 ## Status
+
 Proposed
 
 ## Date
+
 2026-08-11
 
 ## Context
@@ -34,24 +36,28 @@ a second API.
 ## Alternatives Considered
 
 ### Envoy as a gRPC-Web proxy
+
 - Pros: the standard, battle-tested approach; decoupled from the application.
 - Cons: an extra hop and an extra operational component in the sync critical path; Envoy
   configuration is a specialism; a misconfiguration becomes a store-level outage.
 - Rejected: Connect removes the component entirely.
 
 ### REST-only, no gRPC for the client
+
 - Pros: simplest; universally debuggable.
 - Cons: gives up streaming, which `PullChanges` uses for large deltas and first-sync
   progress; gives up binary encoding on the highest-volume endpoint.
 - Rejected: streaming pull is a genuine requirement, not a preference.
 
 ### `grpc-web` official client plus Envoy
+
 - Pros: reference implementation.
 - Cons: the generated TypeScript is dated compared with `@bufbuild/protobuf`; still needs
   the proxy.
 - Rejected.
 
 ### tRPC
+
 - Pros: outstanding TypeScript ergonomics.
 - Cons: TypeScript-only. The server is Go. It also cannot describe the event payloads
   persisted in Postgres.
@@ -75,5 +81,6 @@ a second API.
   façade rather than more annotations.
 
 ## Related
+
 - [ADR-0002](0002-protobuf-buf-contracts.md), [ADR-0001](0001-modular-monolith.md)
 - [Architecture §2.3](../architecture/02-server.md#23-transport)

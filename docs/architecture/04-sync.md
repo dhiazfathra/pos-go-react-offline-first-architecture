@@ -9,7 +9,15 @@ Defined by policy, not by capability. See [ADR-0003](../decisions/0003-offline-s
 | Surface | Offline? | Contents |
 |---|---|---|
 | **Operating surface** | Fully, reads and writes | Register, payment, refund, receipt reprint, cash movement, shift open/close, stock count, price override, customer lookup and create |
-| **Administrative surface** | Online required, explicitly | Create/edit product, change price list, edit tax rules, user and permission management, store config, cross-store reporting |
+| **Administrative surface** | Online required, explicitly | Create/edit product, change price list, edit tax rules, user and permission management, store config, cross-store reporting, customer *record* edits and duplicate merges |
+
+Customer capture is the one row that spans both surfaces, and the split is deliberate:
+registering a walk-in customer at the till is an operational event (`CustomerRegistered`,
+device-minted ID, insert-if-absent on ingest), while editing, merging or deleting a
+customer record is master data and online-only. Two offline devices registering the same
+person produce two records, resolved by a back-office merge rather than prevented. The
+server-side model and its authorization, projection and reconciliation rules are in
+[§2.4](02-server.md#two-write-models-and-knowing-which-you-are-in).
 
 The line is drawn where it is because the two surfaces have opposite economics. Everything
 a cashier touches during a trading day *must* work offline — that is the reason this
@@ -95,7 +103,8 @@ See [ADR-0005](../decisions/0005-event-sourced-writes.md) and
 | Sales, payments, refunds, cash movements | **No** | Distinct immutable facts. Both accepted. |
 | Stock on hand | **No** — not a writable field | Projection of the movement log. Devices append movements; nobody writes a balance. |
 | Shift totals | **No** | Projection of cash movements; tolerates late arrivals. |
-| Master data (product, price, customer) | Yes, rarely | LWW per field + version column. Mostly moot: online-only per §4.1, so it reduces to ordinary optimistic concurrency (409 + reload). |
+| Master data (product, price, customer record) | Yes, rarely | LWW per field + version column. Mostly moot: online-only per §4.1, so it reduces to ordinary optimistic concurrency (409 + reload). |
+| Customer registration at the till | **No** | Distinct immutable facts with device-minted IDs. Two devices registering one person yields two records — a back-office merge, not a conflict. |
 | Receipt numbers | Structurally | Device-prefixed local sequence. See §4.6. |
 
 ### Stock: the trap
@@ -140,7 +149,9 @@ threshold. Showing a confident wrong number is worse than showing an honest unce
         │                                          │
         │──── PullChanges(cursors per table) ─────▶│
         │◀─── stream ChangeSet ────────────────────│
-        │     upsert local, advance cursor         │
+        │     per ChangeSet, ONE IndexedDB txn:    │
+        │       upsert rows + advance cursor       │
+        │     cursor is durable only on commit     │
 ```
 
 **Push before pull, always.** Local writes are the data that exists nowhere else; getting
@@ -152,7 +163,21 @@ them to durable storage takes precedence over freshness of the read cache.
   are the normal condition on the networks this product targets, this is the single most
   important property in the protocol.
 - **Ordered per device** by `device_seq`. Not globally ordered — global ordering across
-  devices is neither achievable nor needed.
+  devices is neither achievable nor needed. Ingest does **not** enforce strictly in-order
+  arrival: a batch resumed after a partition, or one event `DEFERRED` while its successors
+  succeed, legitimately lands out of order. The server accepts each event on its own
+  merits and records the resulting gap in `device_sequence_state`
+  ([§2.4](02-server.md#event-storage)). A gap is a *temporary deferred gap* until it
+  outlives the drain SLO, at which point it is a data-loss alert. Refusing out-of-order
+  events instead would convert one stuck event into a permanently blocked device, which is
+  the failure mode this protocol exists to avoid.
+- **Cursors advance only on a committed local transaction.** Each streamed `ChangeSet` is
+  applied client-side as one IndexedDB transaction covering every row upsert *and* that
+  table's cursor update. A crash mid-stream then resumes from the last cursor that
+  actually committed: rows may be re-delivered and re-upserted, which is harmless because
+  upserts are idempotent, but no row is ever skipped. Advancing the cursor separately from
+  the rows it covers is the one bug in this design that loses data silently and is
+  invisible until a report is wrong.
 - **Batched**, ≤ 200 events or ≤ 1 MB, whichever first. Resumable at batch granularity.
 - **Partial success is normal.** One bad event never blocks the batch behind it.
 - **Cursor-based pull**, per table, using a monotonic watermark. Not timestamps —
@@ -229,9 +254,26 @@ Contained by:
 2. **A shared golden-file corpus.** One JSON corpus of (basket, rules) → expected totals,
    in `api/testdata/pricing/`. Both the Go suite and the Vitest suite run against it. A
    divergence fails both CI jobs.
-3. **Server is authoritative on ingest.** It recomputes and records both figures. A
-   mismatch is logged, alerted, and reported — it does not reject the sale, because the
-   customer has already paid the amount the device displayed.
+3. **Server recomputes on ingest and records both figures.** A mismatch is logged,
+   alerted, and reported — it does not reject the sale, because the customer has already
+   paid the amount the device displayed.
+
+   Which figure is *authoritative* has to be stated, not left to whichever query is
+   written first. Both are persisted on the sale projection:
+
+   | Field | Meaning | Used by |
+   |---|---|---|
+   | `charged_total` | What the device displayed and the customer actually paid | **Authoritative.** Sale projection, receipt, refund ceiling, till and shift reconciliation, tax reporting, accounting export |
+   | `recomputed_total` | What the server's pricing engine says the basket should have cost | Diagnostics only: mismatch metric, variance reporting, and the manager task raised on a mismatch |
+
+   The rule follows from the same principle as §4.4: the physical world wins. Money
+   changed hands at `charged_total`, so that is the figure the books must balance to and
+   the ceiling a refund may not exceed. Reporting on `recomputed_total` would produce a
+   ledger that disagrees with the cash in the drawer, which is the failure mode this whole
+   architecture is built to avoid. `recomputed_total` never silently rewrites anything; a
+   variance is a *reported* number carrying a `variance_amount` and, above a configurable
+   threshold, a manager task. Correcting one is an explicit compensating event
+   (an adjustment or refund), never an edit.
 4. **A mismatch rate metric.** Non-zero divergence is a bug with a dollar value attached,
    and it is visible on a dashboard rather than discovered at month-end.
 
@@ -267,7 +309,8 @@ until the numbers are wrong. Instrument accordingly:
 | Outbox depth, per device | > 500 |
 | Quarantined event count | > 0 |
 | Device last-seen | > 4 h during trading hours |
-| `device_seq` gap detected | any — indicates data loss |
+| `device_seq` gap open in `device_sequence_state` | still open after the drain SLO — indicates data loss. A gap inside the SLO is normal out-of-order arrival |
+| `event_id` or `device_seq` reuse rejection | any — indicates a client bug or a cloned device |
 | Pricing mismatch rate | > 0 |
 | Oversell events | reported daily, not alerted |
 | Pull cursor lag | > 15 min |

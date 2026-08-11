@@ -30,4 +30,17 @@ All runbooks are drafts pending infrastructure. Items marked ⚠️ depend on un
 decisions in [`../README.md`](../README.md#blocking-questions) and are blockers for
 production launch, not documentation debt.
 
+Every runbook carries a `Status` and a `Dependencies and blockers` section at the top:
+
+| Status | Meaning |
+|---|---|
+| `Draft` | Written against the architecture. Commands, hostnames and dashboards are illustrative and have not been run. |
+| `Ready` | The infrastructure exists and every command is real, but the procedure has not been executed end to end. |
+| `Verified` | Executed end to end — in a rehearsal or a real incident — since the last change to it. |
+
+`Dependencies and blockers` lists what must exist or be decided before the runbook is
+trustworthy: missing infrastructure, missing features, and unresolved decisions from
+[`../README.md`](../README.md#blocking-questions). `None` means the runbook is fully
+executable today. A runbook cannot be `Verified` while that list is non-empty.
+
 Template: [`../templates/runbook.template.md`](../templates/runbook.template.md).

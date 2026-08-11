@@ -33,10 +33,17 @@ If you read only three: [0005](0005-event-sourced-writes.md) (why a sale cannot 
    `NNNN-kebab-title.md`, taking the next number. Numbers are never reused or renumbered.
 2. Open a PR with status `Proposed`.
 3. Needs one maintainer approval plus one from anyone materially affected.
-4. Merged as `Accepted`.
-5. **Never edit an accepted ADR** except to change its status. Write a superseding ADR and
+4. **Any prerequisite the ADR itself records must be satisfied and the outcome written
+   into the ADR before it can be merged as `Accepted`.** Generic approval is not
+   sufficient. An ADR whose status carries a qualifier — business sign-off, a blocking
+   question, a conditional dependency — stays `Proposed` until that qualifier is
+   resolved in the text, with the decision-maker and date recorded. The index Status
+   column must carry the same qualifier so an unresolved prerequisite is visible without
+   opening the file.
+5. Merged as `Accepted`.
+6. **Never edit an accepted ADR** except to change its status. Write a superseding ADR and
    link both ways.
-6. Never delete an ADR. A wrong decision with recorded reasoning is more useful than no
+7. Never delete an ADR. A wrong decision with recorded reasoning is more useful than no
    record.
 
 ### When an ADR is required
@@ -51,6 +58,6 @@ If you read only three: [0005](0005-event-sourced-writes.md) (why a sale cannot 
 
 ### Status lifecycle
 
-```
+```text
 Proposed → Accepted → (Superseded by ADR-NNNN | Deprecated)
 ```

@@ -1,9 +1,11 @@
 # ADR-0002: Protobuf via Buf as the single source of truth for all contracts
 
 ## Status
+
 Proposed
 
 ## Date
+
 2026-08-11
 
 ## Context
@@ -41,6 +43,7 @@ definitions, and the replication policy.
 ## Alternatives Considered
 
 ### OpenAPI-first, JSON over REST
+
 - Pros: universal, human-readable, no toolchain for partners, easy debugging.
 - Cons: codegen quality varies sharply by language; no wire-level compatibility guarantees
   for stored events; field renames silently break consumers; no equivalent of Buf's
@@ -48,12 +51,14 @@ definitions, and the replication policy.
 - Rejected: acceptable for the API surface, inadequate for a durable event store.
 
 ### GraphQL
+
 - Pros: excellent client-driven fetching; strong tooling.
 - Cons: solves over-fetching, which a local-first client does not have — it reads from
   IndexedDB. Adds a query-complexity attack surface and does not address event persistence.
 - Rejected: solves a problem this architecture does not have.
 
 ### JSON Schema, JSONB event payloads
+
 - Pros: SQL-inspectable payloads; no codegen step.
 - Cons: no enforced compatibility; larger storage; type drift between languages; nothing
   preventing a field's meaning changing under a live event store.
@@ -61,6 +66,7 @@ definitions, and the replication policy.
   decode CLI, at far lower risk.
 
 ### Protobuf without Buf (raw `protoc`)
+
 - Pros: no extra tool.
 - Cons: no lint, no breaking-change detection, no formatting, painful dependency
   management, plugin version drift across machines.
@@ -73,6 +79,17 @@ definitions, and the replication policy.
   decodability of years of stored events.
 - **Field numbers may never be reused.** `reserved` on removed fields and names is
   mandatory. A reused field number silently misinterprets historical events.
+- **Stored event bytes are preserved byte-for-byte, and nothing on the write path
+  re-encodes them.** An older server decoding a newer event keeps the fields it does not
+  know only while the value stays in the binary wire format; ProtoJSON drops unknown fields
+  entirely, and any field-by-field copy drops them by construction. So the rule is: the
+  `bytea` written at ingest is the bytes received, replay and projection rebuilds read those
+  original bytes rather than a re-serialised copy, and ProtoJSON is confined to
+  presentation — API responses, the decode CLI, debugging output — never to storage or
+  replay. Decode fixtures alone do not catch a violation here, because a round-trip that
+  loses unknown fields still decodes cleanly; the check that catches it is a fixture whose
+  stored bytes carry a field the running binary does not know, asserted identical after
+  ingest, replay, and rebuild.
 - Every change costs a proto edit plus regeneration before feature work can start.
 - REST is generated, not designed. `oneof` and well-known types map awkwardly to JSON; if
   a partner-facing REST API becomes a product surface it needs a hand-designed façade.
@@ -82,6 +99,7 @@ definitions, and the replication policy.
 - API docs (Scalar, Postman) are generated from the same source and cannot rot.
 
 ## Related
+
 - [ADR-0001](0001-modular-monolith.md), [ADR-0005](0005-event-sourced-writes.md),
   [ADR-0012](0012-connect-grpc-web.md)
 - [Architecture §5](../architecture/05-contracts.md)

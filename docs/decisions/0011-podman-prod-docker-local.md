@@ -1,9 +1,11 @@
 # ADR-0011: Podman with quadlets in production, Docker locally
 
 ## Status
+
 Proposed
 
 ## Date
+
 2026-08-11
 
 ## Context
@@ -31,9 +33,14 @@ layer and a set of papercuts that cost developer time every day.
 
 Mitigations, which are the substance of this decision:
 
-1. **Build once, promote unchanged.** Images are OCI, built in CI, tagged by commit SHA,
-   and promoted through environments without rebuilding. The artifact that reaches
-   production is byte-identical to the one that passed CI.
+1. **Build once, promote unchanged — by digest.** Images are OCI, built once in CI, and
+   promoted through environments without rebuilding. The commit-SHA tag is for humans; the
+   `sha256:` **digest is what is promoted and deployed**, because a tag is a mutable pointer
+   a registry can retarget and therefore guarantees nothing about content. Quadlets pin
+   `image=…@sha256:…`, deployment compares the digest actually running against the digest CI
+   produced and fails the rollout if they differ, and images are signed with provenance
+   attestation verified at pull. This is what makes "byte-identical to the one that passed
+   CI" a checkable claim rather than an assumption.
 2. **No `podman-compose`.** Production uses quadlets directly, so the production
    orchestration path is exercised as itself rather than through a compatibility shim that
    hides differences.
@@ -49,6 +56,7 @@ Mitigations, which are the substance of this decision:
 ## Alternatives Considered
 
 ### Docker everywhere
+
 - Pros: complete consistency; simplest to reason about.
 - Cons: forfeits the daemonless/rootless security benefit in production, which is the
   reason Podman was specified.
@@ -56,6 +64,7 @@ Mitigations, which are the substance of this decision:
   attack surface is not.
 
 ### Podman everywhere, including local
+
 - Pros: true dev/prod parity.
 - Cons: Testcontainers requires additional configuration; macOS needs `podman machine`;
   various tools assume the Docker socket. A daily tax on every developer to remove a risk
@@ -64,6 +73,7 @@ Mitigations, which are the substance of this decision:
   reaches production — that event would invalidate the reasoning above.
 
 ### Kubernetes in production
+
 - Pros: rolling deploys, autoscaling, huge ecosystem, standard operational patterns.
 - Cons: a control plane to operate for a small number of nodes and one application;
   substantially more moving parts than the workload warrants.
@@ -86,6 +96,7 @@ Mitigations, which are the substance of this decision:
 - Testcontainers in CI stays on Docker; no attempt is made to run it under Podman.
 
 ## Related
+
 - [ADR-0009](0009-service-to-service-auth.md)
 - [Architecture §6.1](../architecture/06-platform.md#61-runtime),
   [`docs/runbooks/deploy.md`](../runbooks/deploy.md)

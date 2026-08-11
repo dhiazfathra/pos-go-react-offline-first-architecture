@@ -8,14 +8,20 @@ architecture and the decision records. See [`docs/`](docs/).
 
 ## The shape of it
 
-```
+```text
 Device (installed PWA)  ──▶  local store + durable outbox
-        │                          (all reads and writes are local)
+        │              (operating surface: reads and writes are local)
         │ sync engine: push events, pull deltas
         ▼
 Gateway  ──▶  Go modular monolith (go-kratos), gRPC + REST
         ──▶  Postgres (ledger of record) · Redis · MinIO
 ```
+
+The diagram covers the **operating surface** — selling, refunds, shift and stock movements.
+That surface works with no network. The administrative surface (back-office authoring of
+tax rules, catalog and pricing) and the reporting/analytics surface are server-only by
+design and unavailable offline ([ADR-0003](docs/decisions/0003-offline-scope.md),
+[ADR-0004](docs/decisions/0004-replication-tiers.md)).
 
 Operational writes are immutable domain events appended on the device and validated
 server-side. Master data is ordinary CRUD, online-only. Stock on hand is a projection of
