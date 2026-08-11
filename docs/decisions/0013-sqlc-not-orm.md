@@ -1,0 +1,85 @@
+# ADR-0013: sqlc for data access, plain SQL forward-only migrations
+
+## Status
+Proposed
+
+## Date
+2026-08-11
+
+## Context
+
+The server needs a database access layer for Postgres. The workload is unusual in shape:
+
+- Very high-volume, very simple inserts (the event table).
+- Transactionally coupled projection updates.
+- Complex reporting aggregates: sales by hour by category by store, margin analysis,
+  stock valuation, shift reconciliation.
+- Full-text search with weighted `tsvector` ranking.
+- Occasional bulk operations (projection rebuild from the event log).
+
+Simple CRUD — the case ORMs optimise for — is a minority of the work, and it is
+concentrated in master data rather than on any hot path.
+
+## Decision
+
+**sqlc**: hand-written SQL, from which typed Go is generated.
+
+- Queries live in `apps/server/internal/module/<name>/data/queries/*.sql`.
+- `sqlc generate` produces typed Go; the output is committed and verified in CI with a
+  regenerate-and-diff job, matching the Protobuf approach.
+- Migrations are plain SQL applied by `golang-migrate`, **forward-only**. No
+  down-migrations in production; recovery is roll-forward or PITR restore.
+- Migrations run as a separate job before the new binary starts, and must be
+  backward-compatible with the currently running version — expand, migrate, contract,
+  across three releases for anything destructive.
+- Event tables are `REVOKE UPDATE, DELETE` for the application role
+  ([ADR-0005](0005-event-sourced-writes.md)).
+
+## Alternatives Considered
+
+### GORM
+- Pros: the most popular Go ORM; fast for simple CRUD; migrations included.
+- Cons: generates query plans nobody predicted, which is exactly the wrong property for
+  reporting aggregates; heavy reflection; N+1 problems that surface as production latency;
+  awkward with Postgres-specific features (`tsvector`, CTEs, window functions) which this
+  workload uses constantly.
+- Rejected: optimises the minority case and obstructs the majority case.
+
+### Ent
+- Pros: type-safe, code-generated, good graph traversal.
+- Cons: schema defined in Go rather than SQL, which fights hand-tuned indexes and
+  Postgres-specific DDL; complex aggregates still need raw SQL escape hatches; a large
+  framework to learn.
+- Rejected: the escape hatch would become the main path.
+
+### `database/sql` with hand-written scanning
+- Pros: no dependencies, total control.
+- Cons: enormous volume of boilerplate scanning code, and a runtime error every time a
+  column list and a struct drift apart.
+- Rejected: sqlc is this, with the boilerplate generated and the drift caught at build time.
+
+### sqlx
+- Pros: lightweight; struct scanning without full ORM weight.
+- Cons: no compile-time verification that the SQL matches the struct; a typo in a column
+  name is a runtime failure.
+- Rejected: sqlc's compile-time guarantee is the whole point.
+
+## Consequences
+
+- SQL is visible, reviewable, and `EXPLAIN`-able. A performance problem is diagnosed by
+  reading the query that was actually written.
+- sqlc validates queries against the real schema at generate time — a column rename breaks
+  the build rather than production.
+- Writing SQL is slower than an ORM for simple CRUD. This is a genuine cost on master-data
+  screens and a genuine onboarding cost for developers who arrived via ORMs.
+- No lazy loading, therefore no accidental N+1. Every query is explicit.
+- Schema and queries must be regenerated together; the CI diff job enforces it.
+- Forward-only migrations mean a bad migration cannot be reversed by tooling. The recovery
+  path is a compensating migration or a PITR restore, and it must be rehearsed —
+  see [`docs/runbooks/rollback.md`](../runbooks/rollback.md).
+- Migrations are tested against a restored production-shaped dump, which is what catches
+  lock escalation and table rewrites before they cause a store-hours outage.
+
+## Related
+- [ADR-0001](0001-modular-monolith.md), [ADR-0005](0005-event-sourced-writes.md)
+- [Architecture §2.4](../architecture/02-server.md#24-persistence)
