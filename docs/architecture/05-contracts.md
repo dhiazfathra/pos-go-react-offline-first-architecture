@@ -167,8 +167,19 @@ licence for the two to round differently and disagree on a total. Instead:
 | Layer | Representation | Rule |
 |---|---|---|
 | Wire and event payloads | `Money` (`units` + `nanos`) | Canonical. `nanos` and `units` must share a sign; `\|nanos\| < 1e9` |
-| Arithmetic, both languages | Exact scaled integer — total nanos as `int64` (Go) / `bigint` (TS) | All pricing maths happens here. No float, ever, at any step |
+| Arithmetic, both languages | Exact scaled integer — total nanos as `big.Int` (Go) / `bigint` (TS) | All pricing maths happens here. No float, ever, at any step |
 | Presentation and tender | Minor units | The **only** place rounding occurs |
+
+**The total-nanos scaling doesn't fit in a plain `int64`.** `units × 1e9 + nanos`
+overflows a 64-bit signed integer once `\|units\|` exceeds roughly 9.2e9 — comfortably
+inside the wire type's declared range, so a naive Go `int64` accumulator is a silent
+overflow waiting on a large-enough total (bulk order, multi-day till reconciliation).
+Go arithmetic therefore uses `math/big.Int`, matching TypeScript's arbitrary-precision
+`bigint` rather than fighting it with a narrower range restriction — the alternative,
+capping `units` below the wire schema's limit, just moves the failure to validation
+instead of removing it, and this is exact-money code where "moves the failure" is not
+good enough. The pricing golden corpus (`api/testdata/pricing/`) includes boundary
+vectors at and past `int64` total-nanos overflow to keep both languages honest about it.
 
 One rounding rule, applied at one point. A basket is priced end to end in nanos with no
 intermediate rounding, and the result is rounded to the currency's minor unit exactly once

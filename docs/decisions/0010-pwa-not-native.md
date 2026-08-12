@@ -57,7 +57,12 @@ Ship an installed PWA as the only client, with explicit conditions and a defined
   3. An operator-accessible export of the pending outbox exists for the "device is being
      reimaged" and "device is failing" cases, along with a documented recovery path in the
      runbooks. Devices are MDM-managed so that site-data clearing is not a thing a cashier
-     can do casually.
+     can do casually. The export is the raw `pending`/`inflight`/`drained` outbox rows as
+     a signed newline-delimited Protobuf file (same wire bytes the server validates, so
+     nothing is re-encoded); import re-queues every entry to `pending` on the receiving
+     device and relies on the same `eventId` idempotency as any other push to make a
+     double-import harmless. The transfer itself is operator-to-operator (USB/local
+     network under MDM control), not a new server endpoint.
 - If a deployment genuinely requires zero lost sales under device loss, the browser outbox
   alone does not deliver it and the native-shell fallback below becomes mandatory rather
   than conditional.

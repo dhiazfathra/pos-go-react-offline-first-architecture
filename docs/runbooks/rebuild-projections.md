@@ -82,11 +82,20 @@ sequence that makes promotion safe is:
 2. Build the shadow table up to that watermark.
 3. Catch up: apply every event appended after the watermark, repeating until the remaining
    backlog is zero.
-4. Promote only while the backlog is zero, inside the same transaction as the swap, so no
-   event can slip in between the check and the rename.
+4. Promote only while the backlog is zero, inside the same transaction as the swap.
 
 Promoting on the strength of the atomic swap alone silently drops every event that arrived
-during the rebuild.
+during the rebuild — and "inside the same transaction" is not by itself enough to close
+the gap. A plain backlog check followed by a rename does not stop `PushEvents` from
+committing a new event in the instant between the two, because Postgres MVCC does not
+make an uncommitted transaction's check see a peer transaction's not-yet-committed write
+either way. Promotion therefore takes `pg_advisory_xact_lock(<projection_id>)` at the
+start of the transaction, and `PushEvents` for that store's event stream takes the same
+advisory lock before its insert — so the two genuinely serialize: whichever gets there
+first either completes ingest before promotion re-checks the backlog, or completes
+promotion before the next event can commit. `--from-prev` reuses the identical lock and
+sequence; it is a rebuild with a running head start, not a different synchronization
+story.
 
 ### 4. Compare
 

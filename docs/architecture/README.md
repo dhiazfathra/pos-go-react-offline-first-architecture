@@ -14,10 +14,12 @@ Read in order. Each section ends with its own **Tradeoffs** and **Open Questions
 ## The one-paragraph version
 
 A multi-tenant POS platform. Go modular monolith (go-kratos) behind gRPC + REST, both
-generated from Protobuf managed by Buf. React/TanStack Start PWA that reads exclusively
-from local storage and writes exclusively to a durable outbox. Postgres is the ledger of
-record. Operational writes are immutable domain events; master data is ordinary CRUD.
-Stock on hand is a projection, never a written field.
+generated from Protobuf managed by Buf. On the operating surface, the React/TanStack Start
+PWA reads exclusively from local storage and writes exclusively to a durable outbox; the
+administrative and reporting surfaces are server-only and unavailable offline
+([ADR-0003](../decisions/0003-offline-scope.md)). Postgres is the ledger of record.
+Operational writes are immutable domain events; master data is ordinary CRUD. Stock on
+hand is a projection, never a written field.
 
 ## The framing that matters
 

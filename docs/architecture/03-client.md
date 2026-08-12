@@ -139,6 +139,17 @@ two workflows that need it — reprint a receipt, return against a sale — both
 point lookups. Hydrating it would be the single fastest way to blow the memory budget on
 a cheap tablet.
 
+**Session behavior after logout, revocation, or device loss.** Logout clears the in-memory
+Tier 1 index and the active staff session, but deliberately does not wipe IndexedDB —
+another staff member logging in on the same till should not re-pull the whole catalog.
+Revocation and the maximum-offline lockout ([ADR-0004](../decisions/0004-replication-tiers.md#protecting-tier-1-on-the-device))
+are enforced the same way: the sync engine flags the local session invalid on its next
+failed delta pull past the window, the UI drops to a re-authentication screen, and no
+further local writes are accepted until the device is back online and re-authenticates.
+A lost or wiped device does not get a client-side kill switch — that guarantee is
+server-side (remote wipe, credential revocation), because a device that can be told
+anything offline can also be told nothing.
+
 ### The outbox
 
 The most important structure in the client. Everything else can be rebuilt from the
@@ -183,6 +194,17 @@ Rules, each of which exists because violating it loses money:
    backup can lose events the device has already been told were durable, and the device's
    copy is then the only copy. Only after that window does a `drained` entry become
    eligible for deletion, ahead of any Tier-2 history in the eviction order.
+
+   Retention alone is not recovery — it just keeps the raw material available. The
+   missing half, tracked as a known gap ([docs/README.md](../README.md#known-gaps-in-the-design)),
+   is the mechanism that acts on it: the server detects a sequence-range gap for a
+   device from `device_sequence_state` ([§2.4](02-server.md#event-storage)), issues a
+   `RequestRepush(device_id, [device_seq_from, device_seq_to])` control message on the
+   device's next connection, and the client answers by re-queuing its still-`drained`
+   entries in that range back to `pending` — idempotent by `eventId`, same as any other
+   push. It only works if the entry is still inside its retention window when the gap is
+   discovered, which is why the window is sized off restore-detection time and not off
+   convenience.
 5. **`quarantined` entries surface as a manager task.** Never silently dropped.
 6. **The unsynced count is always visible in the UI.** Staff need to know that closing the
    store with 340 unsynced transactions is a thing to mention to someone.

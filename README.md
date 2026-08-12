@@ -24,8 +24,10 @@ design and unavailable offline ([ADR-0003](docs/decisions/0003-offline-scope.md)
 [ADR-0004](docs/decisions/0004-replication-tiers.md)).
 
 Operational writes are immutable domain events appended on the device and validated
-server-side. Master data is ordinary CRUD, online-only. Stock on hand is a projection of
-the movement log, never a written field.
+server-side. Master data is ordinary CRUD and online-only, except customer registration
+(`CustomerRegistered`), which straddles both models — see
+[02-server §2.4](docs/architecture/02-server.md#two-write-models-and-knowing-which-you-are-in).
+Stock on hand is a projection of the movement log, never a written field.
 
 ## Device requirement
 

@@ -189,6 +189,7 @@ CREATE TABLE event_rejections (
   tenant_id       uuid NOT NULL,
   store_id        uuid NOT NULL,
   device_id       uuid NOT NULL,
+  device_seq      bigint NOT NULL,               -- correlates the rejection to its sequence gap
   event_type      text NOT NULL,
   reason          text NOT NULL,                 -- EventResult.reason, as returned to the device
   payload         bytea,                         -- raw bytes, for forensics on schema violations
@@ -222,7 +223,11 @@ batch window is normal.
 device quarantines its copy, and the server keeps the matching side so rejection reasons
 can be aggregated across devices
 ([troubleshooting-sync §3](../runbooks/troubleshooting-sync.md)). `STATUS_DEFERRED` is not
-recorded — it is expected and retried.
+recorded — it is expected and retried. `device_seq` is carried on the rejection row for
+the same reason it's carried on `domain_events`: without it, reconciliation
+([rebuild-projections runbook](../runbooks/rebuild-projections.md)) has no way to tell a
+quarantined event's gap apart from a genuine data-loss gap using the server's own
+records alone.
 
 Three deliberate details:
 

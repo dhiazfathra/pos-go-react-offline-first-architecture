@@ -60,15 +60,21 @@ so the replica is governed by four rules:
   field allowlist per table, and the server projects to it before sending. Replicate the
   fields the till actually renders — for customers, identity and loyalty balance, not
   address, date of birth, or payment instrument; for staff, display name, PIN verifier, and
-  role, never a password hash or contact details.
+  role, never a password hash or contact details. The PIN verifier itself is not a raw PIN:
+  it is a per-staff salted hash (Argon2id), rate-limited to 5 attempts before a device-local
+  lockout, and rotated on every PIN change by the next delta pull — a stolen device yields
+  a slow-to-crack hash, not a usable credential.
 - **Encryption at rest is the platform's**, via full-disk encryption plus a device-lock
   requirement enforced by MDM. IndexedDB has no application-level encryption worth the
   name: any key the app can use offline is a key the app must store on the same device.
   This is stated as a limitation rather than papered over.
 - **Revocation is time-bounded, not immediate.** Permission and staff changes reach a
-  device on its next delta pull; there is no offline push. A device that has not synced
-  within a configurable maximum-offline window stops accepting logins and prompts for
-  connectivity, which bounds how long a revoked user can operate.
+  device on its next delta pull; there is no offline push. The maximum-offline window
+  bounds both ends of a session, not just its start: a device that has not synced within
+  the window stops accepting new logins **and** locks out an already-signed-in staff
+  member from further writes, prompting for connectivity to re-authenticate. Without the
+  second half, a cashier who clocked in before revocation could otherwise keep ringing up
+  sales for the rest of the outage.
 - **Device loss is handled by wipe, not by hope.** Every device is enrolled and remotely
   wipeable, and a device can be revoked server-side so it receives no further data and its
   sync credentials are rejected. Because remote wipe requires the device to be reachable,

@@ -37,7 +37,16 @@ network hop and therefore nothing to authenticate.
 - Postgres credentials are **dynamic**, with a short TTL, issued per instance and rotated
   automatically. No static database password exists anywhere.
 - MinIO, Redis and Unleash credentials are stored in OpenBao and injected at startup, never
-  in environment files or IaC state.
+  in environment files or IaC state. Unlike Postgres, none of these three backends has a
+  dynamic-secrets engine mature enough to lease per-instance credentials, so these are
+  **static credentials under OpenBao-managed rotation**, not per-instance leases: OpenBao
+  rotates the underlying MinIO access key / Redis password / Unleash token on a fixed
+  schedule (default 30 days, forced immediately on suspected compromise), and the running
+  server picks up the new value on its next scheduled OpenBao read plus a bounded retry
+  with the old credential, rather than being handed a lease it renews itself. Client-side,
+  this means the MinIO and Unleash clients are rebuilt (not just re-authenticated) on
+  rotation, and the Redis client reconnects — none of the three tolerate a
+  credential swap on a live connection.
 - TLS terminates at the gateway. Internal traffic runs on an isolated network, and network
   isolation is treated as defence in depth, not as a substitute for encryption in transit.
 - **Every stateful dependency is reached over TLS with certificate validation on** —
@@ -99,12 +108,19 @@ network hop and therefore nothing to authenticate.
 - Operational dependency on OpenBao: if it is sealed or unreachable, new instances cannot
   obtain credentials and cannot start. Running instances continue until their lease
   expires. **Unsealing strategy is a blocking open question** and belongs in the DR runbook.
-- The failure mode during an OpenBao outage is specific and worth stating plainly: existing
-  Postgres sessions keep working until their lease expires, new connections cannot be
-  opened, and the server degrades to serving what its current pool can carry rather than
-  failing outright. Lease TTLs are therefore chosen to exceed the expected OpenBao recovery
-  time, and lease expiry under outage is a scenario the DR rehearsal exercises deliberately
-  — it is the one path where a credential system takes down an otherwise healthy database.
+- The failure mode during an OpenBao outage is specific and worth stating precisely, because
+  "until their lease expires" is easy to misread as "the sessions are killed then." They are
+  not: Postgres does not revoke an already-open session when the role behind it expires —
+  expiry only stops the credential from being used to open a *new* connection. So during the
+  outage: existing pooled connections keep serving queries normally; the pool's health check
+  marks it degraded, not down, once renewal starts failing; the readiness probe fails (this
+  instance stops receiving new traffic at the load balancer) while the liveness probe still
+  passes (it does not restart); and when OpenBao recovers, the next renewal attempt succeeds
+  and the instance flips back to ready without a restart. The instance only actually loses
+  data-plane capability if individual connections drop for unrelated reasons (network blip,
+  Postgres-side idle timeout) during the outage and the pool cannot replace them — that is
+  the scenario lease TTLs are sized against, and the one the DR rehearsal exercises
+  deliberately.
 - No in-cluster mTLS today. This will appear on security questionnaires; the honest answer
   is single-workload plus network isolation plus TLS to every stateful dependency.
 - Adding SPIFFE later is additive: it does not invalidate the OpenBao integration, which

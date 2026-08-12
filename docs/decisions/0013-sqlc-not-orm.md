@@ -99,6 +99,17 @@ concentrated in master data rather than on any hot path.
   PII, is stored in a restricted bucket, is regenerated rather than accumulated, and expires
   on a fixed retention window with deletion enforced by lifecycle policy rather than by
   someone remembering.
+- **Opaque payload columns need their own rule, because field-level masking cannot see
+  inside them.** `domain_events.payload` and `event_rejections.payload` are serialized
+  Protobuf `bytea`, and several event types carry customer name, phone, or email inside
+  those bytes ([02-server §2.4](../architecture/02-server.md#two-write-models-and-knowing-which-you-are-in)).
+  A masking pass that only touches typed columns leaves that PII intact inside the blob.
+  The fixture generator therefore decodes each payload by its `payload_type`, replaces the
+  PII-bearing fields with synthetic values, and re-encodes it — this re-encoding happens
+  **only** in fixture generation; production ingest, replay, and forensics
+  (`pos-events decode`) always operate on the original bytes unchanged. CI includes a scan
+  of the generated fixture set for residual real PII patterns, failing the dataset build
+  rather than the migration job, so a gap here is caught before the tainted dump exists.
 
 ## Related
 

@@ -61,16 +61,23 @@ The exception is only worth having if it actually blocks. It is enforced in thre
   flagged item is ever appended to the outbox offline — the outbox is push-only and
   effectively unrejectable in practice, so a prohibited sale that reaches it is already
   lost.
-- **Backstopped at the server.** Ingest validates the flag as of the event's recorded
-  timestamp. A violation is not silently accepted and not silently dropped: the event is
-  marked `REJECTED` for that reason, quarantined for manual review, and raised to a manager
-  — the sale physically happened and someone has to resolve it. This is the one class of
-  business-rule rejection the sync contract carries; ordinary stock-negative events are
-  still accepted unconditionally.
+- **Backstopped at the server, against a server-authoritative policy.** Ingest validates
+  the flag against the policy version **current at `received_at`** — deliberately not
+  `occurred_at`, which is device-clock and untrusted ([ADR-0005](0005-event-sourced-writes.md));
+  evaluating against a client-controlled timestamp would let a device backdate an event
+  to bypass a flag added after the fact. A violation is not silently accepted and not
+  silently dropped: the event is marked `REJECTED` for that reason, quarantined for
+  manual review, and raised to a manager — the sale physically happened and someone has
+  to resolve it. This is the one class of business-rule rejection the sync contract
+  carries; ordinary stock-negative events are still accepted unconditionally.
 
-The residual gap is honest: a device whose policy is stale sells an item that was flagged
-after its last sync. That window is bounded by the maximum-offline limit in ADR-0004, and
-the quarantine path exists precisely because it cannot be closed entirely.
+The residual gap is honest, and is about staleness, not spoofability: a device whose
+locally cached policy is stale sells an item that was flagged after its last delta pull,
+because the till enforcement in the previous bullet checks the policy the device
+*currently has*, not the one the server has. That window is bounded by the maximum-offline
+limit in ADR-0004, and the quarantine path exists precisely because it cannot be closed
+entirely. The pricing/policy golden corpus includes a backdated-`occurred_at` and a
+stale-policy-version case to keep this distinction from eroding in future edits.
 
 ## Alternatives Considered
 

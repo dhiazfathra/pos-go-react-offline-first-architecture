@@ -77,21 +77,32 @@ WHERE tenant_id = $1 AND rejected_at > now() - interval '24 hours'
 GROUP BY reason ORDER BY 2 DESC;
 ```
 
-Rejection should be rare by design — auth failure, schema violation, or wrong store only
-([§4.5](../architecture/04-sync.md#45-sync-protocol)). Classify each rejection before
-calling it a defect:
+`STATUS_REJECTED` in `EventResult` ([02-server §2.4](../architecture/02-server.md#event-storage))
+is permanent by definition — quarantined, never auto-retried. An expired token or a
+transient infrastructure failure is a transport-layer condition, not a rejection: it
+never reaches `event_rejections` in the first place, because the device sees a
+connection failure and retries with backoff ([§4.5](../architecture/04-sync.md#45-sync-protocol)),
+the same as any other dropped request. If one of those shows up as a `reason` in this
+table, that is itself the defect to chase — a transient failure is being misclassified as
+permanent server-side.
+
+Classify each genuine rejection before calling it a defect:
 
 | Class | Example | Handling |
 |---|---|---|
-| Retryable | Expired token, transient auth or infrastructure failure | Device retries; no intervention beyond restoring the dependency |
-| Reconciliation | The device acted on a stale cache — item deleted, price changed, staff permission revoked since the last pull | The sale happened. Accept it and record the discrepancy as a business exception; do not silently discard |
-| Terminal | Wrong store, malformed payload, schema violation | Manager task on the device; needs a human or a fix before the event can ever be accepted |
-| Defect | A business rule the device evaluated correctly is rejected server-side | **Server bug.** Fix the server and have the device re-push |
+| Business exception | The device acted on a stale cache — item deleted, price changed, staff permission revoked since the last pull | Not a rejection at all: the server accepts the event, records the discrepancy as a reconciliation exception, and raises it to a manager. The sale happened; do not discard it |
+| Terminal | Wrong store, malformed payload, schema violation, `EVENT_ID_REUSE` (same ID, different bytes), `SEQUENCE_REUSE` (`device_seq` collision) | Manager task on the device; needs a human or a fix before the event can ever be accepted |
+| Business-rule violation | `online_required` category sold offline ([ADR-0006](../decisions/0006-oversell-accepted.md)) | The one named business-rule case that **is** `REJECTED` — quarantined and raised to a manager, because the client-side block that should have prevented it already failed |
+| Defect | A business rule the device evaluated correctly is rejected server-side, for a reason not listed above | **Server bug.** Fix the server and have the device re-push |
+
+`STATUS_DEFERRED` is not in this table at all — it belongs to genuine dependency ordering
+(§4.5) and is retried automatically, never quarantined, never a manager task.
 
 Only the last class is a server bug. A business-rule rejection means the server is
 rejecting something that already physically happened — decide first whether that is stale
-device state (reconciliation) or genuinely divergent rule evaluation (defect), because the
-remedies are completely different.
+device state (business exception, accepted), the one contract-defined violation
+(`online_required`, rejected by design), or genuinely divergent rule evaluation (defect),
+because the remedies are completely different.
 
 ### 4. Pricing mismatches
 

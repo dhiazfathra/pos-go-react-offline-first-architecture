@@ -189,8 +189,14 @@ them to durable storage takes precedence over freshness of the read cache.
   on another device that has not synced yet. Retried, not quarantined.
 - **`REJECTED`** is a last resort, reserved for auth failure, schema violation, or writing
   to a store the device does not belong to. **Never** for a business-rule violation that
-  already happened physically. A device offline for two days acted in good faith against a
-  world it could not see; the server's job is to record reality, not to litigate it.
+  already happened physically — with one named exception:
+  [ADR-0006](../decisions/0006-oversell-accepted.md)'s `online_required` category policy.
+  That violation is `REJECTED` and quarantined, not accepted, because it is the one case
+  the client is contractually supposed to block *before* the write exists — a sale of a
+  flagged item reaching ingest at all means the client-side block failed. Ordinary
+  stock-negative events carry no such flag and are still accepted unconditionally; a
+  device offline for two days acted in good faith against a world it could not see, and
+  the server's job for everything else is to record reality, not to litigate it.
 
 ### Transport
 
