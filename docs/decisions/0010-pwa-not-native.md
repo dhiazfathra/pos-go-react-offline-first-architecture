@@ -57,12 +57,25 @@ Ship an installed PWA as the only client, with explicit conditions and a defined
   3. An operator-accessible export of the pending outbox exists for the "device is being
      reimaged" and "device is failing" cases, along with a documented recovery path in the
      runbooks. Devices are MDM-managed so that site-data clearing is not a thing a cashier
-     can do casually. The export is the raw `pending`/`inflight`/`drained` outbox rows as
-     a signed newline-delimited Protobuf file (same wire bytes the server validates, so
-     nothing is re-encoded); import re-queues every entry to `pending` on the receiving
-     device and relies on the same `eventId` idempotency as any other push to make a
-     double-import harmless. The transfer itself is operator-to-operator (USB/local
-     network under MDM control), not a new server endpoint.
+     can do casually. The export captures the raw `pending`/`inflight`/`drained` outbox
+     rows as length-delimited Protobuf records (each record prefixed with a varint byte
+     length, not newline-separated — a raw payload can legitimately contain a `0x0a` byte,
+     which newline-delimiting would silently split and corrupt) — same wire bytes the
+     server validates, so nothing is re-encoded. The file is signed for integrity and
+     encrypted with an authenticated cipher keyed to the receiving operator or device, so a
+     lost or intercepted export in transit (USB/local network under MDM control) does not
+     disclose sale or customer-registration data; key provisioning and rotation follow the
+     same MDM-managed device-credential process as everything else on the fleet. Import
+     verifies the signature and decrypts before touching any row; a failed decryption or
+     signature check is rejected outright and never partially re-queued. A successful
+     import re-queues every entry to `pending` on the receiving device and relies on the
+     same `eventId` idempotency as any other push to make a double-import harmless. The
+     export file is securely deleted from the source device once the operator confirms the
+     import succeeded. The transfer itself is operator-to-operator, not a new server
+     endpoint. The export takes a high-water mark on the outbox at the moment it starts
+     and captures every `pending`/`inflight`/`drained` row up to that mark; it does not
+     pause writes or draining. A sale created after the mark is simply not on this device
+     when it is reimaged — it was never durably placed here, so there is nothing to lose.
 - If a deployment genuinely requires zero lost sales under device loss, the browser outbox
   alone does not deliver it and the native-shell fallback below becomes mandatory rather
   than conditional.

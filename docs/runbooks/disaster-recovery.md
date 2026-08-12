@@ -105,7 +105,7 @@ effective and is the single most important gap in this document.
 Requirements for that feature:
 - Devices retain drained events for a retention window (proposed: 30 days) rather than
   deleting on ack.
-- The server can request `RepushRange(device_id, from_seq, to_seq)`.
+- The server can request [`RepushRange(device_id, from_seq, to_seq)`](../architecture/04-sync.md#repushrange-the-device-repush-contract).
 - Re-push is idempotent by `event_id`, so over-requesting is harmless.
 
 Retaining drained events costs storage and is the correct trade: it converts a class of

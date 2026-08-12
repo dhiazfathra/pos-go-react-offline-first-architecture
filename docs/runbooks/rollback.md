@@ -89,9 +89,10 @@ allocation itself is defective. Only a sequence the device has already marked dr
 which the server does not have, is real loss.
 
 ⚠️ **Recovery of a drained-but-missing event requires a device-side re-push mechanism for a
-given sequence range (`RepushRange`).** This
-does not exist yet and is a **required feature before production launch** — without it, a
-restore permanently loses sales that devices believe were delivered. Raise this as a build
+given sequence range ([`RepushRange`](../architecture/04-sync.md#repushrange-the-device-repush-contract)).**
+The contract is defined but not yet implemented, and is a **required feature before
+production launch** — without it, a restore permanently loses sales that devices believe
+were delivered. Raise this as a build
 item, not a runbook gap.
 
 ## Escalation

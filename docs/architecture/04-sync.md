@@ -211,6 +211,41 @@ nobody needs sub-second propagation of a price change — and it removes a state
 connection-management problem from the critical path. Add it when a feature genuinely
 requires live updates.
 
+### RepushRange: the device-repush contract
+
+`RepushRange` is the one control message the server sends unprompted, outside the
+device-initiated push/pull loop above. It exists for exactly one case: the server detects
+a gap in `device_sequence_state` ([§2.4](02-server.md#event-storage)) that has outlived
+the drain SLO — the device believes an outbox entry is `drained`, but the server has no
+record of it ever arriving.
+
+- **Transport**: unary RPC, `pos/sync/v1/SyncService/RepushRange`, sent on the device's
+  next authenticated connection (piggybacked on the response to that device's next
+  `PushEvents` or `PullChanges` call, not a separate push channel — no WebSocket in v1,
+  per the transport note above).
+- **Payload**: `RepushRange(device_id, device_seq_from, device_seq_to)` — an inclusive
+  `device_seq` range, not individual `event_id`s, because the server knows the gap exists
+  from the sequence counter before it knows which events filled it.
+- **Authorization**: the server only issues a range for a `device_id` it already has an
+  authenticated session for; the device validates that the range request names its own
+  `device_id` before acting on it, the same authz check as any other server-to-device
+  instruction.
+- **Idempotent requeue**: on receipt, the client re-queues every still-`drained` outbox
+  entry whose `deviceSeq` falls in the range back to `pending`. This only works while the
+  entry is inside its retention window ([§3](03-client.md#the-outbox)); an entry already
+  evicted cannot be repushed and falls to the disaster-recovery path instead. Re-queueing
+  is a no-op if the entry is already `pending` or `inflight` — the same idempotent-by-
+  `eventId` guarantee as any other push, so a duplicate `RepushRange` (retried after a
+  lost ack, or overlapping a prior range) never double-sends.
+- **Response**: the re-queued entries flow back through the normal `PushEvents` path and
+  get normal `PushEventsResponse` results; there is no separate acknowledgment for
+  `RepushRange` itself beyond the connection succeeding.
+
+`RepushRange` is the canonical name; `RequestRepush` in earlier drafts referred to the same
+mechanism and has been reconciled to this contract everywhere it is mentioned
+([03-client.md](03-client.md#the-outbox), [disaster-recovery](../runbooks/disaster-recovery.md),
+[rollback](../runbooks/rollback.md), [troubleshooting-sync](../runbooks/troubleshooting-sync.md)).
+
 ## 4.6 Receipt numbering
 
 Underrated, and it bites everyone who defers it.

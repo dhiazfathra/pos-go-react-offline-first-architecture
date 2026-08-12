@@ -110,6 +110,13 @@ concentrated in master data rather than on any hot path.
   (`pos-events decode`) always operate on the original bytes unchanged. CI includes a scan
   of the generated fixture set for residual real PII patterns, failing the dataset build
   rather than the migration job, so a gap here is caught before the tainted dump exists.
+  This scan protects the CI fixture pipeline only — it says nothing about the production
+  `event_rejections.payload` rows the fixture is derived from, which retain PII unchanged
+  by design. Access to that table in production is restricted to the same operator role
+  that can already read `domain_events`, `pos-events decode` output is not written to
+  general-purpose logs, and rejected rows follow the same retention window and deletion
+  policy as the anonymisation dataset above rather than being kept indefinitely; access is
+  audited the same way as any other query against tenant PII.
 
 ## Related
 

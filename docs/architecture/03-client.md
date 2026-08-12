@@ -143,9 +143,13 @@ a cheap tablet.
 Tier 1 index and the active staff session, but deliberately does not wipe IndexedDB —
 another staff member logging in on the same till should not re-pull the whole catalog.
 Revocation and the maximum-offline lockout ([ADR-0004](../decisions/0004-replication-tiers.md#protecting-tier-1-on-the-device))
-are enforced the same way: the sync engine flags the local session invalid on its next
-failed delta pull past the window, the UI drops to a re-authentication screen, and no
-further local writes are accepted until the device is back online and re-authenticates.
+are enforced the same way: the client persists the timestamp of the last successful
+delta pull, and every local write checks that timestamp against the maximum-offline
+window before it is accepted — a write past the window is rejected immediately, it does
+not wait for the next failed pull attempt. A failed delta pull past the window is a
+second, independent signal that also flags the session invalid and drops the UI to a
+re-authentication screen. No further local writes are accepted until the device is back
+online and re-authenticates.
 A lost or wiped device does not get a client-side kill switch — that guarantee is
 server-side (remote wipe, credential revocation), because a device that can be told
 anything offline can also be told nothing.
@@ -199,12 +203,12 @@ Rules, each of which exists because violating it loses money:
    missing half, tracked as a known gap ([docs/README.md](../README.md#known-gaps-in-the-design)),
    is the mechanism that acts on it: the server detects a sequence-range gap for a
    device from `device_sequence_state` ([§2.4](02-server.md#event-storage)), issues a
-   `RequestRepush(device_id, [device_seq_from, device_seq_to])` control message on the
-   device's next connection, and the client answers by re-queuing its still-`drained`
-   entries in that range back to `pending` — idempotent by `eventId`, same as any other
-   push. It only works if the entry is still inside its retention window when the gap is
-   discovered, which is why the window is sized off restore-detection time and not off
-   convenience.
+   [`RepushRange(device_id, device_seq_from, device_seq_to)`](04-sync.md#repushrange-the-device-repush-contract)
+   control message on the device's next connection, and the client answers by re-queuing
+   its still-`drained` entries in that range back to `pending` — idempotent by `eventId`,
+   same as any other push. It only works if the entry is still inside its retention
+   window when the gap is discovered, which is why the window is sized off
+   restore-detection time and not off convenience.
 5. **`quarantined` entries surface as a manager task.** Never silently dropped.
 6. **The unsynced count is always visible in the UI.** Staff need to know that closing the
    store with 340 unsynced transactions is a thing to mention to someone.

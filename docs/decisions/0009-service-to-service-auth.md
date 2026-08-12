@@ -106,8 +106,11 @@ network hop and therefore nothing to authenticate.
 - No static database credentials. Compromise of the application host yields a credential
   that expires shortly.
 - Operational dependency on OpenBao: if it is sealed or unreachable, new instances cannot
-  obtain credentials and cannot start. Running instances continue until their lease
-  expires. **Unsealing strategy is a blocking open question** and belongs in the DR runbook.
+  obtain credentials and cannot start. Running instances' existing pooled connections may
+  continue serving queries past lease expiry, but each instance stops receiving new
+  traffic once its credential renewal starts failing — lease expiry is not the
+  traffic-cutoff time, see below. **Unsealing strategy is a blocking open question** and
+  belongs in the DR runbook.
 - The failure mode during an OpenBao outage is specific and worth stating precisely, because
   "until their lease expires" is easy to misread as "the sessions are killed then." They are
   not: Postgres does not revoke an already-open session when the role behind it expires —

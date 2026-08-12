@@ -60,7 +60,7 @@ Reconcile against the device before concluding anything:
 |---|---|---|
 | Still pending in the device outbox | Undelivered, not lost | Get the device online; it drains itself |
 | In the device's quarantine queue | Rejected, recoverable | Diagnose the rejection reason (§3), fix, re-push |
-| Device has it marked drained, server does not have it | **Real loss** | Full escalation; recovery needs `RepushRange` |
+| Device has it marked drained, server does not have it | **Real loss** | Full escalation; recovery needs [`RepushRange`](../architecture/04-sync.md#repushrange-the-device-repush-contract) |
 | Device never allocated it (its own range skips it) | Client sequence-allocation defect | Backend + frontend; not a loss of a real sale |
 
 Causes, in order of likelihood: device storage eviction, app data cleared, device wiped or
@@ -78,20 +78,29 @@ GROUP BY reason ORDER BY 2 DESC;
 ```
 
 `STATUS_REJECTED` in `EventResult` ([02-server §2.4](../architecture/02-server.md#event-storage))
-is permanent by definition — quarantined, never auto-retried. An expired token or a
-transient infrastructure failure is a transport-layer condition, not a rejection: it
-never reaches `event_rejections` in the first place, because the device sees a
-connection failure and retries with backoff ([§4.5](../architecture/04-sync.md#45-sync-protocol)),
-the same as any other dropped request. If one of those shows up as a `reason` in this
-table, that is itself the defect to chase — a transient failure is being misclassified as
-permanent server-side.
+is permanent by definition — quarantined, never auto-retried. A transient infrastructure
+failure is a transport-layer condition, not a rejection: it never reaches
+`event_rejections` in the first place, because the device sees a connection failure and
+retries with backoff ([§4.5](../architecture/04-sync.md#45-sync-protocol)), the same as
+any other dropped request. If one of those shows up as a `reason` in this table, that is
+itself the defect to chase — a transient failure is being misclassified as permanent
+server-side.
+
+An expired token is deliberately **not** handled the same way as a transport failure,
+because backoff-and-retry never resolves it — the credential does not become valid again
+by waiting. The device treats a 401/expired-credential response as a distinct,
+request-level condition: it attempts a silent re-authentication (refresh token or
+re-login), and if that fails, it locks further local writes and drops to the
+re-authentication screen ([§3](../architecture/03-client.md#session-behavior-after-logout-revocation-or-device-loss))
+rather than leaving the outbox retrying indefinitely against a credential that will never
+succeed. Network backoff is reserved for genuine transport failures only.
 
 Classify each genuine rejection before calling it a defect:
 
 | Class | Example | Handling |
 |---|---|---|
-| Business exception | The device acted on a stale cache — item deleted, price changed, staff permission revoked since the last pull | Not a rejection at all: the server accepts the event, records the discrepancy as a reconciliation exception, and raises it to a manager. The sale happened; do not discard it |
-| Terminal | Wrong store, malformed payload, schema violation, `EVENT_ID_REUSE` (same ID, different bytes), `SEQUENCE_REUSE` (`device_seq` collision) | Manager task on the device; needs a human or a fix before the event can ever be accepted |
+| Business exception | The device acted on a stale cache — item deleted or price changed since the last pull | Not a rejection at all: the server accepts the event, records the discrepancy as a reconciliation exception, and raises it to a manager. The sale happened; do not discard it |
+| Terminal | Wrong store, malformed payload, schema violation, `EVENT_ID_REUSE` (same ID, different bytes), `SEQUENCE_REUSE` (`device_seq` collision), staff permission revoked since the last pull (authorization failure) | Manager task on the device; needs a human or a fix before the event can ever be accepted |
 | Business-rule violation | `online_required` category sold offline ([ADR-0006](../decisions/0006-oversell-accepted.md)) | The one named business-rule case that **is** `REJECTED` — quarantined and raised to a manager, because the client-side block that should have prevented it already failed |
 | Defect | A business rule the device evaluated correctly is rejected server-side, for a reason not listed above | **Server bug.** Fix the server and have the device re-push |
 

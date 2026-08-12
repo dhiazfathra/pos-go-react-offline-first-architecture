@@ -18,8 +18,10 @@ generated from Protobuf managed by Buf. On the operating surface, the React/TanS
 PWA reads exclusively from local storage and writes exclusively to a durable outbox; the
 administrative and reporting surfaces are server-only and unavailable offline
 ([ADR-0003](../decisions/0003-offline-scope.md)). Postgres is the ledger of record.
-Operational writes are immutable domain events; master data is ordinary CRUD. Stock on
-hand is a projection, never a written field.
+Operational writes are immutable domain events; master data is ordinary CRUD, with one
+exception — a walk-in customer registered at the till (`CustomerRegistered`) is a
+device-minted operational event, not CRUD, so it survives offline the same way a sale
+does ([04-sync.md](04-sync.md)). Stock on hand is a projection, never a written field.
 
 ## The framing that matters
 
